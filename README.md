@@ -2,7 +2,7 @@
 
 Juego de realidad aumentada para dos jugadores (Explorador + Operador) con 7 juegos de 3 niveles cada uno.
 
-##Desarrolladores:
+## Desarrolladores:
 - Basualdo Benicio
 - Jara Thiago
 - Semeguen Valentino
