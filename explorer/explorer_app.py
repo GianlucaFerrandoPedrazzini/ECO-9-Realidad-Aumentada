@@ -16,7 +16,6 @@ from shared import protocol
 
 FONT = cv2.FONT_HERSHEY_SIMPLEX
 
-# Estado compartido entre el hilo de red y el hilo de video
 state = {'game': 1, 'level': 0, 'params': {}, 'won': False, 'hold_start': None, 'conn': None}
 lock = threading.Lock()
 
@@ -50,8 +49,9 @@ def apply_message(msg):
 
 
 def _notify(msg):
-    """Envía un mensaje al Operador (debe llamarse con el lock tomado)."""
-    conn = state['conn']
+    """Envía un mensaje al Operador (debe llamarse SIN el lock tomado)."""
+    with lock:
+        conn = state['conn']
     if conn is None:
         return
     try:
@@ -93,6 +93,7 @@ def serve():
 def update_progress(game, level, params):
     """Evalúa el objetivo. Devuelve (estado, avance): 'playing', 'holding' o 'won'."""
     now = time.time()
+    notify_msg = None
     with lock:
         if state['won']:
             return 'won', 1.0
@@ -102,11 +103,13 @@ def update_progress(game, level, params):
         if state['hold_start'] is None:
             state['hold_start'] = now
         held = now - state['hold_start']
-        if held >= goals.HOLD_SECONDS:
-            state['won'] = True
-            _notify({'type': 'won', 'game': game, 'level': level})
-            return 'won', 1.0
-        return 'holding', held / goals.HOLD_SECONDS
+        if held < goals.HOLD_SECONDS:
+            return 'holding', held / goals.HOLD_SECONDS
+        state['won'] = True
+        notify_msg = {'type': 'won', 'game': game, 'level': level}
+    if notify_msg:
+        _notify(notify_msg)
+    return 'won', 1.0
 
 
 def _ascii(text):

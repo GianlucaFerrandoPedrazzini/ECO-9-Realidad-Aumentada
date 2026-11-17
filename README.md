@@ -2,6 +2,12 @@
 
 Juego de realidad aumentada para dos jugadores (Explorador + Operador) con 7 juegos de 3 niveles cada uno.
 
+##Desarrolladores:
+- Basualdo Benicio
+- Jara Thiago
+- Semeguen Valentino
+- Ferrando Gianluca
+
 ## Instalación
 
 ```bash

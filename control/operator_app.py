@@ -1,5 +1,6 @@
-"""Aplicación del Operador: panel con sliders, selección de juego y nivel, cronómetro
-y avance automático al nivel siguiente cuando el Explorador informa la victoria.
+"""Aplicación del Operador: panel con sliders (con valor actual visible y marcas
+de mínimo / paso / máximo), selección de juego y nivel, cronómetro y avance
+automático al nivel siguiente cuando el Explorador informa la victoria.
 No ve la cámara ni las hojas; sólo comunica por voz con el Explorador."""
 import queue
 import socket
@@ -14,11 +15,20 @@ from games.levels import GAMES
 from shared import protocol
 
 
+def fmt_value(value, res):
+    """Formatea un valor con tantos decimales como indique la resolución."""
+    if res >= 1:
+        return str(int(round(value)))
+    s = f"{res:.10f}".rstrip("0")
+    decimals = len(s.split(".")[1]) if "." in s else 0
+    return f"{value:.{decimals}f}"
+
+
 class OperatorApp(ctk.CTk):
     def __init__(self, host):
         super().__init__()
         self.title('Operador - El Códice Fractal AR')
-        self.geometry('540x740')
+        self.geometry('560x820')
         self.sock = socket.create_connection((host, NETWORK_PORT), timeout=3)
         self.sock.settimeout(None)
         self.inbox = queue.Queue()
@@ -27,6 +37,7 @@ class OperatorApp(ctk.CTk):
         self.deadline = None
         self.finished = False
         self.sliders = {}
+        self.value_labels = {}
         self._build()
         threading.Thread(target=self._reader, daemon=True).start()
         self._select_game(1)
@@ -58,18 +69,18 @@ class OperatorApp(ctk.CTk):
         names = ['%d. %s' % (k, v['name']) for k, v in GAMES.items()]
         self.game_menu = ctk.CTkOptionMenu(top, values=names, command=self._on_game)
         self.game_menu.pack(fill='x', padx=8, pady=8)
-        self.level_seg = ctk.CTkSegmentedButton(top, values=['Nivel 1', 'Nivel 2', 'Nivel 3'],
-                                                command=self._on_level)
+        self.level_seg = ctk.CTkSegmentedButton(
+            top, values=['Nivel 1', 'Nivel 2', 'Nivel 3'], command=self._on_level)
         self.level_seg.pack(fill='x', padx=8, pady=(0, 8))
-        self.info = ctk.CTkLabel(self, text='', wraplength=500, justify='left')
+        self.info = ctk.CTkLabel(self, text='', wraplength=520, justify='left')
         self.info.pack(fill='x', padx=12, pady=4)
         self.params_frame = ctk.CTkFrame(self)
         self.params_frame.pack(fill='both', expand=True, padx=12, pady=8)
-        self.status = ctk.CTkLabel(self, text='', font=('Arial', 16, 'bold'), wraplength=500)
+        self.status = ctk.CTkLabel(self, text='', font=('Arial', 16, 'bold'), wraplength=520)
         self.status.pack(pady=4)
         self.timer_label = ctk.CTkLabel(self, text='', font=('Arial', 22, 'bold'))
         self.timer_label.pack(pady=8)
-        self.series = ctk.CTkLabel(self, text='', wraplength=500, justify='left')
+        self.series = ctk.CTkLabel(self, text='', wraplength=520, justify='left')
         self.series.pack(fill='x', padx=12, pady=(4, 12))
 
     def _on_game(self, choice):
@@ -80,14 +91,39 @@ class OperatorApp(ctk.CTk):
         for w in self.params_frame.winfo_children():
             w.destroy()
         self.sliders = {}
+        self.value_labels = {}
+
         for key, (label, lo, hi, init, res) in GAMES[gid]['params'].items():
-            ctk.CTkLabel(self.params_frame, text=label).pack(anchor='w', padx=8)
+            # Encabezado: nombre del parámetro + valor actual (azul, se actualiza en vivo)
+            header = ctk.CTkFrame(self.params_frame, fg_color='transparent')
+            header.pack(fill='x', padx=8, pady=(6, 0))
+            ctk.CTkLabel(header, text=label, anchor='w',
+                         font=('Arial', 13, 'bold')).pack(side='left')
+            vlabel = ctk.CTkLabel(header, text=fmt_value(init, res), anchor='e',
+                                  font=('Arial', 13, 'bold'), text_color='#4FC3F7', width=80)
+            vlabel.pack(side='right')
+            self.value_labels[key] = (vlabel, res)
+
+            # Slider con número fijo de posiciones discretas
             steps = max(1, round((hi - lo) / res))
-            s = ctk.CTkSlider(self.params_frame, from_=lo, to=hi, number_of_steps=steps,
-                              command=lambda v, k=key: self._on_param(k, v))
-            s.set(init)
-            s.pack(fill='x', padx=8, pady=(0, 6))
-            self.sliders[key] = s
+            slider = ctk.CTkSlider(self.params_frame, from_=lo, to=hi,
+                                   number_of_steps=steps,
+                                   command=lambda v, k=key: self._on_param(k, v))
+            slider.set(init)
+            slider.pack(fill='x', padx=8, pady=(2, 0))
+            self.sliders[key] = slider
+
+            # Línea de marcas: mínimo | paso | máximo
+            marks = ctk.CTkFrame(self.params_frame, fg_color='transparent')
+            marks.pack(fill='x', padx=8, pady=(0, 8))
+            ctk.CTkLabel(marks, text=fmt_value(lo, res), font=('Arial', 9),
+                         text_color='gray').pack(side='left')
+            ctk.CTkLabel(marks, text=fmt_value(hi, res), font=('Arial', 9),
+                         text_color='gray').pack(side='right')
+            ctk.CTkLabel(marks, text='paso ' + fmt_value(res, res),
+                         font=('Arial', 9), text_color='gray').pack(
+                side='left', expand=True, fill='x')
+
         self.game_menu.set('%d. %s' % (gid, GAMES[gid]['name']))
         self.series.configure(text='Serie: ' + GAMES[gid]['series'])
         self._send({'type': 'select', 'game': gid, 'level': 0})
@@ -107,6 +143,9 @@ class OperatorApp(ctk.CTk):
         self._send({'type': 'level', 'level': idx})
 
     def _on_param(self, key, value):
+        if key in self.value_labels:
+            vlabel, res = self.value_labels[key]
+            vlabel.configure(text=fmt_value(value, res))
         self._send({'type': 'param', 'key': key, 'value': float(value)})
 
     def _on_win(self):
